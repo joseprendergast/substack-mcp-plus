@@ -369,18 +369,7 @@ class PostHandler:
         if limit < 1 or limit > 25:
             raise ValueError("limit must be between 1 and 25")
 
-        # Get all posts and filter for published only
-        all_posts = self.client.get_drafts(limit=min(limit, 25))
-        published = []
-
-        for post in all_posts:
-            # Check if it's published (has a post_date)
-            if post.get("post_date"):
-                published.append(post)
-                if len(published) >= limit:
-                    break
-
-        return published
+        return self.client.get_published_posts(limit=limit)
 
     async def get_post(self, post_id: str) -> Dict[str, Any]:
         """Get a specific post by ID

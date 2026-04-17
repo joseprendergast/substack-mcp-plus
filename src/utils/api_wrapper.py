@@ -152,6 +152,31 @@ class APIWrapper:
             )
             raise SubstackAPIError(f"Failed to get post {post_id}: {str(e)}")
 
+    def get_published_posts(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get published posts with error handling"""
+        try:
+            result = self.client.get_published_posts(limit=limit)
+            # get_published_posts returns {'posts': [...]} not a bare list
+            if isinstance(result, dict) and "posts" in result:
+                items = result["posts"]
+            elif isinstance(result, list):
+                items = result
+            else:
+                logger.warning(
+                    f"Unexpected get_published_posts response type: {type(result)}"
+                )
+                return []
+
+            posts = []
+            for item in items:
+                checked = self._handle_response(item, "get_published_posts[item]")
+                if isinstance(checked, dict):
+                    posts.append(checked)
+            return posts
+        except Exception as e:
+            logger.error(f"get_published_posts error: {type(e).__name__}: {str(e)}")
+            return []
+
     def get_drafts(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get drafts with error handling"""
         try:

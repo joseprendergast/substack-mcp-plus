@@ -244,6 +244,31 @@ This is for paid subscribers only."""
             )
 
     @pytest.mark.asyncio
+    async def test_list_published_uses_published_endpoint(self):
+        """list_published must call get_published_posts, not get_drafts"""
+        mock_posts = [
+            {"id": "post-1", "title": "Published 1", "post_date": "2026-04-08T12:00:00Z"},
+            {"id": "post-2", "title": "Published 2", "post_date": "2026-03-23T12:00:00Z"},
+        ]
+        self.mock_client.get_published_posts = Mock(return_value=mock_posts)
+
+        result = await self.handler.list_published(limit=10)
+
+        assert len(result) == 2
+        assert result[0]["title"] == "Published 1"
+        self.mock_client.get_published_posts.assert_called_once_with(limit=10)
+        self.mock_client.get_drafts.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_list_published_respects_limit(self):
+        """list_published passes limit to get_published_posts"""
+        self.mock_client.get_published_posts = Mock(return_value=[])
+
+        await self.handler.list_published(limit=5)
+
+        self.mock_client.get_published_posts.assert_called_once_with(limit=5)
+
+    @pytest.mark.asyncio
     async def test_error_handling(self):
         """Test error handling when API calls fail"""
         self.mock_client.post_draft = Mock(side_effect=Exception("API Error"))
