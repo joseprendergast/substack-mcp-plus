@@ -155,24 +155,13 @@ class APIWrapper:
     def get_published_posts(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get published posts with error handling"""
         try:
-            result = self.client.get_published_posts(limit=limit)
-            # get_published_posts returns {'posts': [...]} not a bare list
-            if isinstance(result, dict) and "posts" in result:
-                items = result["posts"]
-            elif isinstance(result, list):
-                items = result
-            else:
-                logger.warning(
-                    f"Unexpected get_published_posts response type: {type(result)}"
-                )
-                return []
-
-            posts = []
-            for item in items:
-                checked = self._handle_response(item, "get_published_posts[item]")
-                if isinstance(checked, dict):
-                    posts.append(checked)
-            return posts
+            response = self.client._session.get(
+                f"{self.publication_url}/api/v1/posts",
+                params={"limit": limit, "offset": 0},
+            )
+            result = response.json()
+            items = result if isinstance(result, list) else result.get("posts", [])
+            return [item for item in items if isinstance(item, dict)]
         except Exception as e:
             logger.error(f"get_published_posts error: {type(e).__name__}: {str(e)}")
             return []
@@ -180,28 +169,15 @@ class APIWrapper:
     def get_drafts(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Get drafts with error handling"""
         try:
-            logger.info(f"APIWrapper.get_drafts called with limit={limit}")
-            logger.info(f"Client type: {type(self.client)}")
-            logger.info(f"Client has get_drafts: {hasattr(self.client, 'get_drafts')}")
-
-            result = self.client.get_drafts(limit=limit)
-            logger.info(f"get_drafts returned type: {type(result)}")
-
-            # Convert generator to list and check each item
-            drafts = []
-            for i, draft in enumerate(result):
-                logger.debug(f"Processing draft {i+1}")
-                checked_draft = self._handle_response(draft, "get_drafts[item]")
-                if isinstance(checked_draft, dict):
-                    drafts.append(checked_draft)
-
-            logger.info(f"APIWrapper.get_drafts returning {len(drafts)} drafts")
-            return drafts
+            response = self.client._session.get(
+                f"{self.publication_url}/api/v1/drafts",
+                params={"filter": "draft", "limit": limit, "offset": 0},
+            )
+            result = response.json()
+            items = result if isinstance(result, list) else result.get("drafts", [])
+            return [item for item in items if isinstance(item, dict)]
         except Exception as e:
             logger.error(f"get_drafts error: {type(e).__name__}: {str(e)}")
-            import traceback
-
-            logger.error(f"Traceback: {traceback.format_exc()}")
             return []
 
     def post_draft(self, draft_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -254,16 +230,13 @@ class APIWrapper:
     def get_sections(self) -> List[Dict[str, Any]]:
         """Get sections with error handling"""
         try:
-            result = self.client.get_sections()
-            if result is None:
+            response = self.client._session.get(
+                f"{self.publication_url}/api/v1/publication/sections"
+            )
+            result = response.json()
+            if not isinstance(result, list):
                 return []
-            # Convert generator to list
-            sections = []
-            for section in result:
-                checked_section = self._handle_response(section, "get_sections[item]")
-                if isinstance(checked_section, dict):
-                    sections.append(checked_section)
-            return sections
+            return result
         except Exception as e:
             logger.error(f"get_sections error: {str(e)}")
             return []
@@ -271,68 +244,25 @@ class APIWrapper:
     def get_publication_subscriber_count(self) -> int:
         """Get subscriber count with error handling"""
         try:
-            # The python-substack method directly accesses ["subscriberCount"]
-            # which will raise KeyError if the key doesn't exist
-            result = self.client.get_publication_subscriber_count()
-
-            # If we get here, the library successfully extracted the count
-            if isinstance(result, (int, float)):
-                return int(result)
-            else:
-                raise SubstackAPIError(
-                    f"Unexpected subscriber count type: {type(result)}"
-                )
-
-        except KeyError as e:
-            # This happens when the API response doesn't have 'subscriberCount' key
-            logger.warning(f"subscriberCount key not found in API response: {e}")
-
-            # Try alternative via sections
-            try:
-                sections = self.get_sections()
-                if sections:
-                    # Sum up subscriber counts from sections
-                    total = 0
-                    for section in sections:
-                        # Check multiple possible field names
-                        count = section.get("subscriber_count", 0)
-                        if count == 0:
-                            # Try alternative field names
-                            count = section.get(
-                                "free_subscriber_count", 0
-                            ) + section.get("paid_subscriber_count", 0)
-                        total += count
-
-                        # Log what fields we found
-                        logger.debug(
-                            f"Section {section.get('name', 'unknown')}: subscriber_count={section.get('subscriber_count')}, "
-                            f"free={section.get('free_subscriber_count')}, paid={section.get('paid_subscriber_count')}"
-                        )
-
-                    if total > 0:
-                        logger.info(f"Got subscriber count from sections: {total}")
-                        return total
-
-                # If no sections or no counts, raise error
-                raise SubstackAPIError(
-                    "Unable to get subscriber count - no data available"
-                )
-
-            except Exception as e2:
-                logger.error(f"Failed to get subscriber count from sections: {e2}")
-                raise SubstackAPIError(
-                    "Unable to get subscriber count from publication or sections"
-                )
-
-        except AttributeError as e:
-            # Method might not exist or client might be None
-            raise SubstackAPIError(f"API client error: {str(e)}")
-
-        except Exception as e:
-            # Any other unexpected error
-            logger.error(
-                f"Unexpected error getting subscriber count: {type(e).__name__}: {str(e)}"
+            response = self.client._session.get(
+                f"{self.publication_url}/api/v1/publication_launch_checklist"
             )
+            data = response.json()
+            count = data.get("subscriberCount")
+            if isinstance(count, (int, float)):
+                return int(count)
+            # Substack removed subscriberCount from this endpoint; return list length as proxy
+            subscribers = data.get("subscribers", [])
+            if isinstance(subscribers, list) and len(subscribers) > 0:
+                raise SubstackAPIError(
+                    "Subscriber count not available via API (Substack removed this endpoint). "
+                    "Check your dashboard at substack.com for the exact number."
+                )
+            raise SubstackAPIError("Unable to retrieve subscriber count from Substack API.")
+        except SubstackAPIError:
+            raise
+        except Exception as e:
+            logger.error(f"get_publication_subscriber_count error: {str(e)}")
             raise SubstackAPIError(f"Failed to get subscriber count: {str(e)}")
 
     def get_image(self, image_path: str) -> Dict[str, Any]:
